@@ -10,6 +10,8 @@
         @import url('https://fonts.googleapis.com/css?family=Montserrat&display=swap');
         :root {
             font-family: Montserrat, sans-serif;
+            background-color: floralwhite;
+            font-size: 19px;
         }
         .cgrid {
             display: inline-block;
@@ -64,7 +66,7 @@
     </style>
 </head>
 <body>
-    <h1>Drum Patterns</h1>
+    <h1>Drum Patterns <span id="midiSynth"></span></h1>
     <main>
     <div class="cgrid">
         <svg xmlns:svg="http://www.w3.org/2000/svg"
@@ -87,6 +89,24 @@
                 style="fill:darkorange;stroke:#C60;stroke-width:0.07" />
             </def>
             <g id="beats"></g>
+            <g id="stepRing">
+                <use xlink:href="#p6"></use>
+                <use xlink:href="#p6" transform="rotate(22.5  6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(45    6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(67.5  6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(90    6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(112.5 6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(135   6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(157.5 6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(180   6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(202.5 6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(225   6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(247.5 6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(270   6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(292.5 6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(315   6.3707255 6.3707255)"></use>
+                <use xlink:href="#p6" transform="rotate(337.5 6.3707255 6.3707255)"></use>
+            </g>
             <g>
                 <path d="M 6.3707248,5.1393722 V 0.04881222" />
                 <path d="M 6.3707248,12.692652 V 7.6020822" />
@@ -131,8 +151,53 @@
             });
         });
     }
+    var MIDIO = null;
+    var queMidi = nope => false;
+    var playMidi = nope => false;
+    var midiBuffer = [];
+    var midistruct = [
+        {name:"Kick", notenum:35},
+        {name:"Snare", notenum:38},
+        {name:"CHH", notenum:42},
+        {name:"OHH", notenum:46},
+        {name:"HiAgogo", notenum:67},
+        {name:"LoAgogo", notenum:68},
+    ];
+    var msPer16th = 125; // 120BPM
+    if (navigator.requestMIDIAccess){
+        navigator.requestMIDIAccess()
+        .then(u=>{
+            MIDIO = u.outputs.values().next().value;
+            if (MIDIO){
+                MIDIO.send([0xBA, 0, 120]);
+                MIDIO.send([0xCA, 0]);
+                MIDIO.send([0x9A, 52, 0x7f]);
+                midiSynth.textContent = "on "+MIDIO.name;
+            }
+            queMidi = function (instrument, time, par){
+                par.midi.push({message:[0x9A, midistruct[instrument].notenum, 0x7f], time:(time-1)*msPer16th});
+            }
+            playMidi = function (midi){
+                const tn = window.performance.now();
+                midi.forEach(u=>MIDIO.send(u.message, tn+u.time));
+                var stepNum = 0;
+                var steps = stepRing.children;
+                steps[stepNum++].style.opacity = "1";
 
-    function getBeats(node, xmlDoc){
+                var tf = function(t){
+                    steps[stepNum-1].style.opacity = "0.3";
+                    steps[stepNum++].style.opacity = "1";
+                    if (stepNum<steps.length)
+                        setTimeout(tf, msPer16th);
+                    else
+                        setTimeout(u=>steps[steps.length-1].style.opacity = "0.3", msPer16th);
+                }
+                setTimeout(tf, msPer16th+60);
+            }
+        }, x=>{console.log("MIDI Failed")});
+    }
+
+    function getBeats(node, xmlDoc, par){
         // start with the xml node 3 rows below the beat title merged cells
         let brow = ((node[1]>>0)+3);
         var inst = 0;
@@ -150,8 +215,10 @@
             var bbb = ["p"+inst];
             while (nnode = nnode.nextSibling){
                 let rest = restvals.has(nnode.getAttribute("s"));
-                if (!rest)
+                if (!rest) {
                     bbb.push(i);
+                    queMidi(inst, i, par);
+                }
                 i++;
                 if (i>16)
                     break;
@@ -202,13 +269,18 @@
                 ourBeats.slice(1).forEach(bx=>{
                     var ourbeat = document.createElement("li");
                     ourbeat.textContent = bx[4];
-                    ourbeat.beats = getBeats(bx,xmlDoc);
+                    ourbeat.midi = [];
+                    ourbeat.beats = getBeats(bx,xmlDoc,ourbeat);
                     ourbeat.onclick = function (e){
                         updateBeats(this.beats);
                         let old = beatCards.querySelector(".current");
                         if (old)
                             old.classList.remove("current");
                         this.classList.add("current");
+                        if (this.midi.length>0){
+                            playMidi(this.midi);
+                            setTimeout(e=>playMidi(this.midi), (msPer16th*16));
+                        }
                     };
                     bc.appendChild(ourbeat);
                 });
